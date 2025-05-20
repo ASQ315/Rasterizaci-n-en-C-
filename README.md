@@ -1,1 +1,1 @@
-# Rasterizaci-n-en-C-
+# Rasterizacion en C++
