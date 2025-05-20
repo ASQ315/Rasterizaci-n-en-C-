@@ -1,4 +1,3 @@
-
 #include <vector>
 #include <cmath>
 #include <algorithm>
@@ -126,7 +125,7 @@ void DrawTriangle(Canvas& canvas,
     DrawLine(canvas, P1, z1, P2, z2, color);
     DrawLine(canvas, P2, z2, P0, z0, color);
 }
-/*
+
 void DrawFilledTriangle(Canvas& canvas, 
                        const Point& P0, float z0,
                        const Point& P1, float z1,
@@ -179,7 +178,7 @@ void DrawFilledTriangle(Canvas& canvas,
         z_right = z02;
     }
 
-    // Draw the horizontal segments
+    // Draw the horizontal segments with depth interpolation
     for (int y = y0; y <= y2; y++) {
         int y_idx = y - y0;
         int x_l = static_cast<int>(x_left[y_idx]);
@@ -193,7 +192,7 @@ void DrawFilledTriangle(Canvas& canvas,
         }
     }
 }
-*/
+
 Point ViewportToCanvas(float x, float y, int canvasWidth, int canvasHeight) {
     const float Vw = 1.0f, Vh = 1.0f;
     return Point(x * canvasWidth / Vw, y * canvasHeight / Vh);
@@ -226,6 +225,42 @@ vector<vector<float>> MakeTranslationMatrix(float tx, float ty, float tz) {
     };
 }
 
+vector<vector<float>> MakeScalingMatrix(float sx, float sy, float sz) {
+    return {
+        {sx, 0, 0, 0},
+        {0, sy, 0, 0},
+        {0, 0, sz, 0},
+        {0, 0, 0, 1}
+    };
+}
+
+vector<vector<float>> MakeRotationXMatrix(float angle) {
+    return {
+        {1, 0, 0, 0},
+        {0, cos(angle), -sin(angle), 0},
+        {0, sin(angle), cos(angle), 0},
+        {0, 0, 0, 1}
+    };
+}
+
+vector<vector<float>> MakeRotationYMatrix(float angle) {
+    return {
+        {cos(angle), 0, sin(angle), 0},
+        {0, 1, 0, 0},
+        {-sin(angle), 0, cos(angle), 0},
+        {0, 0, 0, 1}
+    };
+}
+
+vector<vector<float>> MakeRotationZMatrix(float angle) {
+    return {
+        {cos(angle), -sin(angle), 0, 0},
+        {sin(angle), cos(angle), 0, 0},
+        {0, 0, 1, 0},
+        {0, 0, 0, 1}
+    };
+}
+
 vector<vector<float>> MakeCameraMatrix(const vector<float>& position, const vector<float>& orientation) {
     return {
         {1, 0, 0, -position[0]},
@@ -246,6 +281,21 @@ vector<float> TransformVertex(const vector<float>& vertex, const vector<vector<f
     return {result[0], result[1], result[2]};
 }
 
+struct Plane {
+    float a, b, c, d;
+    
+    Plane(float a = 0, float b = 0, float c = 0, float d = 0) 
+        : a(a), b(b), c(c), d(d) {}
+};
+
+struct BoundingSphere {
+    vector<float> center;
+    float radius;
+    
+    BoundingSphere(const vector<float>& c = {0,0,0}, float r = 1.0f) 
+        : center(c), radius(r) {}
+};
+
 struct Triangle {
     vector<int> vertices;
     int color_index;
@@ -261,6 +311,12 @@ struct Model {
 struct Instance {
     Model model;
     vector<vector<float>> transform;
+    BoundingSphere bounding_sphere;
+    
+    Instance(const Model& m = Model(), 
+             const vector<vector<float>>& t = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}},
+             const BoundingSphere& bs = BoundingSphere())
+        : model(m), transform(t), bounding_sphere(bs) {}
 };
 
 struct Camera {
@@ -272,10 +328,157 @@ struct Scene {
     vector<Instance> instances;
 };
 
+float SignedDistance(const Plane& plane, const vector<float>& vertex) {
+    return plane.a * vertex[0] + 
+           plane.b * vertex[1] + 
+           plane.c * vertex[2] + 
+           plane.d;
+}
+
+vector<float> IntersectLinePlane(const vector<float>& v0, const vector<float>& v1, const Plane& plane) {
+    float d0 = SignedDistance(plane, v0);
+    float d1 = SignedDistance(plane, v1);
+    float t = d0 / (d0 - d1);
+    
+    return {
+        v0[0] + t * (v1[0] - v0[0]),
+        v0[1] + t * (v1[1] - v0[1]),
+        v0[2] + t * (v1[2] - v0[2])
+    };
+}
+
+vector<Triangle> ClipTriangle(const Triangle& triangle, 
+                             const vector<vector<float>>& vertices, 
+                             const Plane& plane) {
+    const auto& v0 = vertices[triangle.vertices[0]];
+    const auto& v1 = vertices[triangle.vertices[1]];
+    const auto& v2 = vertices[triangle.vertices[2]];
+    
+    float d0 = SignedDistance(plane, v0);
+    float d1 = SignedDistance(plane, v1);
+    float d2 = SignedDistance(plane, v2);
+    
+    bool inside0 = d0 >= 0;
+    bool inside1 = d1 >= 0;
+    bool inside2 = d2 >= 0;
+    
+    int inside_count = (inside0 ? 1 : 0) + (inside1 ? 1 : 0) + (inside2 ? 1 : 0);
+    
+    if (inside_count == 3) {
+        return {triangle};
+    } else if (inside_count == 0) {
+        return {};
+    } else if (inside_count == 1) {
+        int inside_idx = inside0 ? 0 : (inside1 ? 1 : 2);
+        int outside_idx1 = (inside_idx + 1) % 3;
+        int outside_idx2 = (inside_idx + 2) % 3;
+        
+        const auto& A = vertices[triangle.vertices[inside_idx]];
+        const auto& B = vertices[triangle.vertices[outside_idx1]];
+        const auto& C = vertices[triangle.vertices[outside_idx2]];
+        
+        auto B_prime = IntersectLinePlane(A, B, plane);
+        auto C_prime = IntersectLinePlane(A, C, plane);
+        
+        vector<int> new_vertices = {
+            triangle.vertices[inside_idx],
+            static_cast<int>(vertices.size()),
+            static_cast<int>(vertices.size() + 1)
+        };
+        
+        Triangle new_tri(new_vertices, triangle.color_index);
+        return {new_tri};
+    } else {
+        int outside_idx = !inside0 ? 0 : (!inside1 ? 1 : 2);
+        int inside_idx1 = (outside_idx + 1) % 3;
+        int inside_idx2 = (outside_idx + 2) % 3;
+        
+        const auto& A = vertices[triangle.vertices[inside_idx1]];
+        const auto& B = vertices[triangle.vertices[inside_idx2]];
+        const auto& C = vertices[triangle.vertices[outside_idx]];
+        
+        auto A_prime = IntersectLinePlane(A, C, plane);
+        auto B_prime = IntersectLinePlane(B, C, plane);
+        
+        vector<int> new_vertices1 = {
+            triangle.vertices[inside_idx1],
+            triangle.vertices[inside_idx2],
+            static_cast<int>(vertices.size())
+        };
+        
+        vector<int> new_vertices2 = {
+            static_cast<int>(vertices.size()),
+            triangle.vertices[inside_idx2],
+            static_cast<int>(vertices.size() + 1)
+        };
+        
+        Triangle new_tri1(new_vertices1, triangle.color_index);
+        Triangle new_tri2(new_vertices2, triangle.color_index);
+        return {new_tri1, new_tri2};
+    }
+}
+
+Instance ClipTrianglesAgainstPlane(const Instance& instance, const Plane& plane) {
+    Instance clipped_instance = instance;
+    clipped_instance.model.triangles.clear();
+    
+    for (const auto& triangle : instance.model.triangles) {
+        auto clipped_tris = ClipTriangle(triangle, instance.model.vertices, plane);
+        for (const auto& tri : clipped_tris) {
+            clipped_instance.model.triangles.push_back(tri);
+        }
+    }
+    
+    return clipped_instance;
+}
+
+Instance* ClipInstanceAgainstPlane(Instance& instance, const Plane& plane) {
+    float d = SignedDistance(plane, instance.bounding_sphere.center);
+    float r = instance.bounding_sphere.radius;
+    
+    if (d > r) {
+        return &instance;
+    } else if (d < -r) {
+        return nullptr;
+    } else {
+        Instance* clipped_instance = new Instance(ClipTrianglesAgainstPlane(instance, plane));
+        return clipped_instance;
+    }
+}
+
+Instance* ClipInstance(Instance& instance, const vector<Plane>& planes) {
+    Instance* current = &instance;
+    
+    for (const auto& plane : planes) {
+        current = ClipInstanceAgainstPlane(*current, plane);
+        if (current == nullptr) {
+            return nullptr;
+        }
+    }
+    
+    return current;
+}
+
+Scene ClipScene(const Scene& scene, const vector<Plane>& planes) {
+    Scene clipped_scene;
+    
+    for (const auto& instance : scene.instances) {
+        Instance inst_copy = instance;
+        Instance* clipped_instance = ClipInstance(inst_copy, planes);
+        if (clipped_instance != nullptr) {
+            clipped_scene.instances.push_back(*clipped_instance);
+            delete clipped_instance;
+        }
+    }
+    
+    return clipped_scene;
+}
+
 void RenderTriangle(Canvas& canvas, 
                    const Triangle& triangle, 
                    const vector<vector<float>>& transformedVertices,
-                   const vector<Point>& projected) {
+                   const vector<Point>& projected,
+                   bool filled = true) {
     const auto& v0 = transformedVertices[triangle.vertices[0]];
     const auto& v1 = transformedVertices[triangle.vertices[1]];
     const auto& v2 = transformedVertices[triangle.vertices[2]];
@@ -292,59 +495,66 @@ void RenderTriangle(Canvas& canvas,
         default: color = Color(255, 255, 255); break;
     }
 
-    DrawTriangle(canvas, 
-                      projected[triangle.vertices[0]], v0[2],
-                      projected[triangle.vertices[1]], v1[2],
-                      projected[triangle.vertices[2]], v2[2],
-                      color);
-}
-
-// ... (previous code remains the same until the RenderModel function)
-
-vector<float> ApplyTransform(const vector<float>& vertex, const vector<vector<float>>& transform) {
-    // This function combines scaling, rotation, and translation from the transform matrix
-    // Since we're already using matrix multiplication for transformations, we can just use TransformVertex
-    return TransformVertex(vertex, transform);
+    if (filled) {
+        DrawFilledTriangle(canvas, 
+                         projected[triangle.vertices[0]], v0[2],
+                         projected[triangle.vertices[1]], v1[2],
+                         projected[triangle.vertices[2]], v2[2],
+                         color);
+    } else {
+        DrawTriangle(canvas, 
+                   projected[triangle.vertices[0]], v0[2],
+                   projected[triangle.vertices[1]], v1[2],
+                   projected[triangle.vertices[2]], v2[2],
+                   color);
+    }
 }
 
 void RenderInstance(Canvas& canvas, 
-                   const Instance& instance, 
-                   const vector<vector<float>>& cameraMatrix,
-                   int canvasWidth, int canvasHeight) {
+                  const Instance& instance, 
+                  const vector<vector<float>>& cameraMatrix,
+                  int canvasWidth, int canvasHeight,
+                  bool filled = true) {
     vector<Point> projected;
     vector<vector<float>> transformedVertices;
     const Model& model = instance.model;
     
-    // Combine camera and instance transform
     auto M = MultiplyMatrices(cameraMatrix, instance.transform);
     
-    // Transform and project vertices
     for (const auto& vertex : model.vertices) {
-        auto transformed = ApplyTransform(vertex, M);
+        auto transformed = TransformVertex(vertex, M);
         transformedVertices.push_back(transformed);
         projected.push_back(ProjectVertex(transformed, canvasWidth, canvasHeight));
     }
     
-    // Render each triangle with depth information
     for (const auto& triangle : model.triangles) {
-        RenderTriangle(canvas, triangle, transformedVertices, projected);
+        RenderTriangle(canvas, triangle, transformedVertices, projected, filled);
     }
 }
 
-void RenderScene(Canvas& canvas, const Scene& scene, const Camera& camera, int canvasWidth, int canvasHeight) {
+void RenderScene(Canvas& canvas, const Scene& scene, const Camera& camera, int canvasWidth, int canvasHeight, bool filled = true) {
     canvas.clear();
     auto M_camera = MakeCameraMatrix(camera.position, camera.orientation);
     
-    for (const auto& instance : scene.instances) {
-        RenderInstance(canvas, instance, M_camera, canvasWidth, canvasHeight);
+    vector<Plane> clipping_planes = {
+        Plane(0, 0, 1, 1),
+        Plane(0, 0, -1, 10),
+        Plane(1, 0, 0, 5),
+        Plane(-1, 0, 0, 5),
+        Plane(0, 1, 0, 5),
+        Plane(0, -1, 0, 5)
+    };
+    
+    Scene clipped_scene = ClipScene(scene, clipping_planes);
+    
+    for (const auto& instance : clipped_scene.instances) {
+        RenderInstance(canvas, instance, M_camera, canvasWidth, canvasHeight, filled);
     }
 }
 
-
-
 int main() {
-    const int Cw = 500;
-    const int Ch = 500;
+    const int Cw = 800;
+    const int Ch = 600;
     
     Canvas canvas(Cw, Ch, Color(50, 50, 50));
     
@@ -364,34 +574,47 @@ int main() {
         Triangle({2, 6, 7}, 6), Triangle({2, 7, 3}, 6)
     };
 
-    // Create scene with instance
+    // Create scene with instances
     Scene scene;
-
-    //Original cube instance
+    
+    // Original cube (centered)
     Instance originalCube;
     originalCube.model = cube;
-    originalCube.transform = MakeTranslationMatrix(0, 0, 10.0f);
+    originalCube.transform = MakeTranslationMatrix(0, 0, 8.0f);
+    originalCube.bounding_sphere = BoundingSphere({0, 0, 8}, sqrt(3));
     scene.instances.push_back(originalCube);
-
-    //Translated cube instance
+    
+    // Translated cube (left and down)
     Instance translatedCube;
     translatedCube.model = cube;
-    translatedCube.transform = MakeTranslationMatrix(-3.0f, -1.0, 10.0);
+    translatedCube.transform = MakeTranslationMatrix(-3.0f, -1.0f, 7.0f);
+    translatedCube.bounding_sphere = BoundingSphere({-3, -1, 7}, sqrt(3));
     scene.instances.push_back(translatedCube);
-
-    //Scaled cube instance
+    
+    // Scaled cube (smaller, right and up)
     Instance scaledCube;
     scaledCube.model = cube;
-    scaledCube.transform = MultiplyMatrices(MakeTranslationMatrix(3.0f, 1.0f, 10.0), 
-                                             MakeTranslationMatrix(0.5f, 0.5f, 0.5f));
+    auto scale = MakeScalingMatrix(0.5f, 0.5f, 0.5f);
+    auto translateAndScale = MultiplyMatrices(MakeTranslationMatrix(3.0f, 1.0f, 9.0f), scale);
+    scaledCube.transform = translateAndScale;
+    scaledCube.bounding_sphere = BoundingSphere({3, 1, 9}, sqrt(3) * 0.5f);
     scene.instances.push_back(scaledCube);
     
+    // Rotated cube (around Y axis)
+    Instance rotatedCube;
+    rotatedCube.model = cube;
+    auto rotationY = MakeRotationYMatrix(0.5f);
+    auto translateRotate = MultiplyMatrices(MakeTranslationMatrix(0, 2.5f, 7.0f), rotationY);
+    rotatedCube.transform = translateRotate;
+    rotatedCube.bounding_sphere = BoundingSphere({0, 2.5, 7}, sqrt(3));
+    scene.instances.push_back(rotatedCube);
+
     // Set up camera
     Camera camera;
     camera.position = {0, 0, 0};
 
-    // Render scene
-    RenderScene(canvas, scene, camera, Cw, Ch);
+    // Render scene with filled triangles
+    RenderScene(canvas, scene, camera, Cw, Ch, true);
     
     canvas.writePPM("output.ppm");
     cout << "Rendered image saved to output.ppm" << endl;
