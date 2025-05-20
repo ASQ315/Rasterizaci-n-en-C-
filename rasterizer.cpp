@@ -454,14 +454,14 @@ void RenderTriangle(Canvas& canvas,
 
     Color color;
     switch(triangle.color_index) {
-        case 0: color = Color(0, 0, 0); break;
-        case 1: color = Color(0, 0, 255); break;
-        case 2: color = Color(255, 0, 0); break;
-        case 3: color = Color(0, 255, 0); break;
-        case 4: color = Color(128, 0, 128); break;
-        case 5: color = Color(255, 255, 0); break;
-        case 6: color = Color(0, 255, 255); break;
-        default: color = Color(255, 255, 255); break;
+        case 0: color = Color(0, 0, 0); break;   //rgb(0,0,0)
+        case 1: color = Color(128, 128, 254); break; //rgb(128, 128, 254)
+        case 2: color = Color(247, 75, 75); break; //rgb(247, 75, 75)
+        case 3: color = Color(120, 249, 120); break; //rgb(120, 249, 120)
+        case 4: color = Color(128,0,128); break; //rgb(128,0,128)
+        case 5: color = Color(247, 247, 146); break; //rgb(247, 247, 146)
+        case 6: color = Color(0, 255, 255); break; //rgb(0,255,255)
+        default: color = Color(255, 255, 255); break; //rgb(255,255,255)
     }
 
 
