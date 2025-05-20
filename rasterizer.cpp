@@ -1,3 +1,7 @@
+/*Examen 2: Rasterizacion en C++
+  Angel Santiago Quiñones
+  enlace github: https://github.com/ASQ315/Rasterizacion/tree/main*/
+
 #include <vector>
 #include <cmath>
 #include <algorithm>
@@ -548,26 +552,28 @@ int main() {
     // Create scene with instances
     Scene scene;
     
-    // Original cube (centered)
+    // Scaled cube  (first cube)
+    Instance scaledCube;
+    scaledCube.model = cube;
+    scaledCube.transform = Transform({0.0f, 2.0f, 10.0f}, {0, 0, 0}, {0.5f, 0.5f, 0.5f});
+    scaledCube.bounding_sphere = BoundingSphere({3, 1, 9}, sqrt(3) * 0.5f);
+    scene.instances.push_back(scaledCube);
+    
+
+    // Original cube (second cube)
     Instance originalCube;
     originalCube.model = cube;
     originalCube.transform = Transform({0, 0, 10.0f});
     originalCube.bounding_sphere = BoundingSphere({0, 0, 8}, sqrt(3));
     scene.instances.push_back(originalCube);
     
-    // Translated cube (left)
+    // Translated cube  (third cube)
     Instance translatedCube;
     translatedCube.model = cube;
-    translatedCube.transform = Transform({-3.0f, 0.0f, 10.0f});
+    translatedCube.transform = Transform({0.0f, -3.0f, 10.0f});
     translatedCube.bounding_sphere = BoundingSphere({-3, -1, 7}, sqrt(3));
     scene.instances.push_back(translatedCube);
     
-    // Scaled cube (right)
-    Instance scaledCube;
-    scaledCube.model = cube;
-    scaledCube.transform = Transform({3.0f, 0.0f, 10.0f}, {0, 0, 0}, {0.5f, 0.5f, 0.5f});
-    scaledCube.bounding_sphere = BoundingSphere({3, 1, 9}, sqrt(3) * 0.5f);
-    scene.instances.push_back(scaledCube);
     
 
     // Set up camera
