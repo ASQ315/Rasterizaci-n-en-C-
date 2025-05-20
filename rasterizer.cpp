@@ -83,7 +83,7 @@ vector<float> Interpolate(int i0, float d0, int i1, float d1) {
     return values;
 }
 
-void DrawLine(Canvas& canvas, const Point& P0, float z0, const Point& P1, float z1, const Color& color) {
+void DrawLine(Canvas& canvas, const Point& P0, float h0, const Point& P1, float h1, const Color& color) {
     int x0 = static_cast<int>(P0.x);
     int y0 = static_cast<int>(P0.y);
     int x1 = static_cast<int>(P1.x);
@@ -93,44 +93,43 @@ void DrawLine(Canvas& canvas, const Point& P0, float z0, const Point& P1, float 
         if (x0 > x1) {
             swap(x0, x1);
             swap(y0, y1);
-            swap(z0, z1);
+            swap(h0, h1);
         }
 
         auto ys = Interpolate(x0, static_cast<float>(y0), x1, static_cast<float>(y1));
-        auto zs = Interpolate(x0, z0, x1, z1);
+        auto hs = Interpolate(x0, h0, x1, h1);
         for (int x = x0; x <= x1; x++) {
-            canvas.setPixel(x, static_cast<int>(ys[x - x0]), zs[x - x0], color);
+            canvas.setPixel(x, static_cast<int>(ys[x - x0]), hs[x - x0], color);
         }
     } else {
         if (y0 > y1) {
             swap(x0, x1);
             swap(y0, y1);
-            swap(z0, z1);
+            swap(h0, h1);
         }
 
         auto xs = Interpolate(y0, static_cast<float>(x0), y1, static_cast<float>(x1));
-        auto zs = Interpolate(y0, z0, y1, z1);
+        auto hs = Interpolate(y0, h0, y1, h1);
         for (int y = y0; y <= y1; y++) {
-            canvas.setPixel(static_cast<int>(xs[y - y0]), y, zs[y - y0], color);
+            canvas.setPixel(static_cast<int>(xs[y - y0]), y, hs[y - y0], color);
         }
     }
 }
 
 void DrawTriangle(Canvas& canvas, 
-                 const Point& P0, float z0,
-                 const Point& P1, float z1,
-                 const Point& P2, float z2,
+                 const Point& P0, float h0,
+                 const Point& P1, float h1,
+                 const Point& P2, float h2,
                  const Color& color) {
-    DrawLine(canvas, P0, z0, P1, z1, color);
-    DrawLine(canvas, P1, z1, P2, z2, color);
-    DrawLine(canvas, P2, z2, P0, z0, color);
+    DrawLine(canvas, P0, h0, P1, h1, color);
+    DrawLine(canvas, P1, h1, P2, h2, color);
+    DrawLine(canvas, P2, h2, P0, h0, color);
 }
 
 void DrawFilledTriangle(Canvas& canvas, 
-                       const Point& P0, float z0,
-                       const Point& P1, float z1,
-                       const Point& P2, float z2,
-                       const Color& color) {
+                const Point& P0, float h0, const Point& P1, float h1,
+                const Point& P2, float h2, const Color& color) {
+
     int x0 = static_cast<int>(P0.x);
     int y0 = static_cast<int>(P0.y);
     int x1 = static_cast<int>(P1.x);
@@ -139,146 +138,114 @@ void DrawFilledTriangle(Canvas& canvas,
     int y2 = static_cast<int>(P2.y);
 
     // Sort vertices by y
-    if (y1 < y0) { swap(x0, x1); swap(y0, y1); swap(z0, z1); }
-    if (y2 < y0) { swap(x0, x2); swap(y0, y2); swap(z0, z2); }
-    if (y2 < y1) { swap(x1, x2); swap(y1, y2); swap(z1, z2); }
+    if (y1 < y0) { swap(x0, x1); swap(y0, y1); swap(h0, h1); }
+    if (y2 < y0) { swap(x0, x2); swap(y0, y2); swap(h0, h2); }
+    if (y2 < y1) { swap(x1, x2); swap(y1, y2); swap(h1, h2); }
 
-    // Compute x and z values for edges
+    // Compute x and h values for edges
     auto x01 = Interpolate(y0, static_cast<float>(x0), y1, static_cast<float>(x1));
-    auto z01 = Interpolate(y0, z0, y1, z1);
+    auto h01 = Interpolate(y0, h0, y1, h1);
     
     auto x12 = Interpolate(y1, static_cast<float>(x1), y2, static_cast<float>(x2));
-    auto z12 = Interpolate(y1, z1, y2, z2);
+    auto h12 = Interpolate(y1, h1, y2, h2);
     
     auto x02 = Interpolate(y0, static_cast<float>(x0), y2, static_cast<float>(x2));
-    auto z02 = Interpolate(y0, z0, y2, z2);
+    auto h02 = Interpolate(y0, h0, y2, h2);
 
     // Concatenate the short sides
     x01.pop_back();
     auto x012 = x01;
     x012.insert(x012.end(), x12.begin(), x12.end());
     
-    z01.pop_back();
-    auto z012 = z01;
-    z012.insert(z012.end(), z12.begin(), z12.end());
+    h01.pop_back();
+    auto h012 = h01;
+    h012.insert(h012.end(), h12.begin(), h12.end());
 
     // Determine which is left and which is right
     int m = x012.size() / 2;
-    vector<float> x_left, x_right, z_left, z_right;
+    
+    vector<float> x_left, x_right, h_left, h_right;
     
     if (x02[m] < x012[m]) {
         x_left = x02;
-        z_left = z02;
+        h_left = h02;
+
         x_right = x012;
-        z_right = z012;
+        h_right = h012;
     } else {
         x_left = x012;
-        z_left = z012;
+        h_left = h012;
+
         x_right = x02;
-        z_right = z02;
+        h_right = h02;
     }
 
-    // Draw the horizontal segments with depth interpolation
+    // Draw the horizontal segments 
     for (int y = y0; y <= y2; y++) {
         int y_idx = y - y0;
         int x_l = static_cast<int>(x_left[y_idx]);
         int x_r = static_cast<int>(x_right[y_idx]);
         
-        auto z_segment = Interpolate(x_l, z_left[y_idx], x_r, z_right[y_idx]);
+        auto h_segment = Interpolate(x_l, h_left[y_idx], x_r, h_right[y_idx]);
         
         for (int x = x_l; x <= x_r; x++) {
-            float z = z_segment[x - x_l];
+            float z = h_segment[x - x_l];
             canvas.setPixel(x, y, z, color);
         }
     }
 }
 
-Point ViewportToCanvas(float x, float y, int canvasWidth, int canvasHeight) {
+Point ViewportToCanvas(float x, float y, int Cw, int Ch) {
     const float Vw = 1.0f, Vh = 1.0f;
-    return Point(x * canvasWidth / Vw, y * canvasHeight / Vh);
+    return Point(x * Cw / Vw, y * Ch / Vh);
 }
 
-Point ProjectVertex(const vector<float>& v, int canvasWidth, int canvasHeight) {
+Point ProjectVertex(const vector<float>& v, int Cw, int Ch) {
     const float d = 1.0f;
-    Point point = ViewportToCanvas(v[0] * d / v[2], v[1] * d / v[2], canvasWidth, canvasHeight);
-    return Point(point.x + canvasWidth/2, canvasHeight/2 - point.y);
+    Point point = ViewportToCanvas(v[0] * d / v[2], v[1] * d / v[2], Cw, Ch);
+    return Point(point.x + Cw/2, Ch/2 - point.y);
 }
 
-vector<vector<float>> MultiplyMatrices(const vector<vector<float>>& a, const vector<vector<float>>& b) {
-    vector<vector<float>> result(4, vector<float>(4, 0));
-    for (int i = 0; i < 4; ++i) {
-        for (int j = 0; j < 4; ++j) {
-            for (int k = 0; k < 4; ++k) {
-                result[i][j] += a[i][k] * b[k][j];
-            }
-        }
-    }
-    return result;
-}
+struct Transform {
+    vector<float> translation;
+    vector<float> rotation;  // Euler angles (x, y, z)
+    vector<float> scale;
+    
+    Transform(const vector<float>& t = {0,0,0}, 
+              const vector<float>& r = {0,0,0}, 
+              const vector<float>& s = {1,1,1})
+        : translation(t), rotation(r), scale(s) {}
+};
 
-vector<vector<float>> MakeTranslationMatrix(float tx, float ty, float tz) {
-    return {
-        {1, 0, 0, tx},
-        {0, 1, 0, ty},
-        {0, 0, 1, tz},
-        {0, 0, 0, 1}
+vector<float> ApplyTransform(const vector<float>& vertex, const Transform& transform) {
+    // Scale first
+    vector<float> scaled = {
+        vertex[0] * transform.scale[0],
+        vertex[1] * transform.scale[1],
+        vertex[2] * transform.scale[2]
     };
-}
-
-vector<vector<float>> MakeScalingMatrix(float sx, float sy, float sz) {
+    
+  
+    float x = scaled[0];
+    float y = scaled[1] * cos(transform.rotation[0]) - scaled[2] * sin(transform.rotation[0]);
+    float z = scaled[1] * sin(transform.rotation[0]) + scaled[2] * cos(transform.rotation[0]);
+    
+    // Y rotation
+    float x2 = x * cos(transform.rotation[1]) + z * sin(transform.rotation[1]);
+    float y2 = y;
+    float z2 = -x * sin(transform.rotation[1]) + z * cos(transform.rotation[1]);
+    
+    // Z rotation
+    float x3 = x2 * cos(transform.rotation[2]) - y2 * sin(transform.rotation[2]);
+    float y3 = x2 * sin(transform.rotation[2]) + y2 * cos(transform.rotation[2]);
+    float z3 = z2;
+    
+    // Finally translate
     return {
-        {sx, 0, 0, 0},
-        {0, sy, 0, 0},
-        {0, 0, sz, 0},
-        {0, 0, 0, 1}
+        x3 + transform.translation[0],
+        y3 + transform.translation[1],
+        z3 + transform.translation[2]
     };
-}
-
-vector<vector<float>> MakeRotationXMatrix(float angle) {
-    return {
-        {1, 0, 0, 0},
-        {0, cos(angle), -sin(angle), 0},
-        {0, sin(angle), cos(angle), 0},
-        {0, 0, 0, 1}
-    };
-}
-
-vector<vector<float>> MakeRotationYMatrix(float angle) {
-    return {
-        {cos(angle), 0, sin(angle), 0},
-        {0, 1, 0, 0},
-        {-sin(angle), 0, cos(angle), 0},
-        {0, 0, 0, 1}
-    };
-}
-
-vector<vector<float>> MakeRotationZMatrix(float angle) {
-    return {
-        {cos(angle), -sin(angle), 0, 0},
-        {sin(angle), cos(angle), 0, 0},
-        {0, 0, 1, 0},
-        {0, 0, 0, 1}
-    };
-}
-
-vector<vector<float>> MakeCameraMatrix(const vector<float>& position, const vector<float>& orientation) {
-    return {
-        {1, 0, 0, -position[0]},
-        {0, 1, 0, -position[1]},
-        {0, 0, 1, -position[2]},
-        {0, 0, 0, 1}
-    };
-}
-
-vector<float> TransformVertex(const vector<float>& vertex, const vector<vector<float>>& transform) {
-    vector<float> v = {vertex[0], vertex[1], vertex[2], 1.0f};
-    vector<float> result(4, 0);
-    for (int i = 0; i < 4; ++i) {
-        for (int j = 0; j < 4; ++j) {
-            result[i] += transform[i][j] * v[j];
-        }
-    }
-    return {result[0], result[1], result[2]};
 }
 
 struct Plane {
@@ -308,25 +275,27 @@ struct Model {
     vector<Triangle> triangles;
 };
 
-struct Instance {
-    Model model;
-    vector<vector<float>> transform;
-    BoundingSphere bounding_sphere;
-    
-    Instance(const Model& m = Model(), 
-             const vector<vector<float>>& t = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}},
-             const BoundingSphere& bs = BoundingSphere())
-        : model(m), transform(t), bounding_sphere(bs) {}
-};
-
 struct Camera {
     vector<float> position = {0, 0, 0};
     vector<float> orientation = {0, 0, 0};
 };
 
+struct Instance {
+    Model model;
+    Transform transform;
+    BoundingSphere bounding_sphere;
+    
+    Instance(const Model& m = Model(), 
+             const Transform& t = Transform(),
+             const BoundingSphere& bs = BoundingSphere())
+        : model(m), transform(t), bounding_sphere(bs) {}
+};
+
 struct Scene {
     vector<Instance> instances;
 };
+
+
 
 float SignedDistance(const Plane& plane, const vector<float>& vertex) {
     return plane.a * vertex[0] + 
@@ -477,8 +446,8 @@ Scene ClipScene(const Scene& scene, const vector<Plane>& planes) {
 void RenderTriangle(Canvas& canvas, 
                    const Triangle& triangle, 
                    const vector<vector<float>>& transformedVertices,
-                   const vector<Point>& projected,
-                   bool filled = true) {
+                   const vector<Point>& projected) {
+
     const auto& v0 = transformedVertices[triangle.vertices[0]];
     const auto& v1 = transformedVertices[triangle.vertices[1]];
     const auto& v2 = transformedVertices[triangle.vertices[2]];
@@ -495,60 +464,62 @@ void RenderTriangle(Canvas& canvas,
         default: color = Color(255, 255, 255); break;
     }
 
-    if (filled) {
-        DrawFilledTriangle(canvas, 
+
+    DrawFilledTriangle(canvas, 
                          projected[triangle.vertices[0]], v0[2],
                          projected[triangle.vertices[1]], v1[2],
                          projected[triangle.vertices[2]], v2[2],
                          color);
-    } else {
-        DrawTriangle(canvas, 
-                   projected[triangle.vertices[0]], v0[2],
-                   projected[triangle.vertices[1]], v1[2],
-                   projected[triangle.vertices[2]], v2[2],
-                   color);
-    }
+    
 }
 
 void RenderInstance(Canvas& canvas, 
                   const Instance& instance, 
-                  const vector<vector<float>>& cameraMatrix,
+                  const Camera& camera,
                   int canvasWidth, int canvasHeight,
                   bool filled = true) {
     vector<Point> projected;
     vector<vector<float>> transformedVertices;
     const Model& model = instance.model;
     
-    auto M = MultiplyMatrices(cameraMatrix, instance.transform);
+    
+    Transform cameraTransform;
+    cameraTransform.translation = {
+        -camera.position[0],
+        -camera.position[1],
+        -camera.position[2]
+    };
     
     for (const auto& vertex : model.vertices) {
-        auto transformed = TransformVertex(vertex, M);
+       
+        auto transformed = ApplyTransform(vertex, instance.transform);
+        transformed = ApplyTransform(transformed, cameraTransform);
+        
         transformedVertices.push_back(transformed);
         projected.push_back(ProjectVertex(transformed, canvasWidth, canvasHeight));
     }
     
     for (const auto& triangle : model.triangles) {
-        RenderTriangle(canvas, triangle, transformedVertices, projected, filled);
+        RenderTriangle(canvas, triangle, transformedVertices, projected);
     }
 }
 
 void RenderScene(Canvas& canvas, const Scene& scene, const Camera& camera, int canvasWidth, int canvasHeight, bool filled = true) {
     canvas.clear();
-    auto M_camera = MakeCameraMatrix(camera.position, camera.orientation);
     
     vector<Plane> clipping_planes = {
-        Plane(0, 0, 1, 1),
-        Plane(0, 0, -1, 10),
-        Plane(1, 0, 0, 5),
-        Plane(-1, 0, 0, 5),
-        Plane(0, 1, 0, 5),
-        Plane(0, -1, 0, 5)
+        Plane(0, 0, 1, 1),    // Near plane
+        Plane(0, 0, -1, 10),   // Far plane
+        Plane(1, 0, 0, 5),     // Right plane
+        Plane(-1, 0, 0, 5),    // Left plane
+        Plane(0, 1, 0, 5),     // Top plane
+        Plane(0, -1, 0, 5)     // Bottom plane
     };
     
     Scene clipped_scene = ClipScene(scene, clipping_planes);
     
     for (const auto& instance : clipped_scene.instances) {
-        RenderInstance(canvas, instance, M_camera, canvasWidth, canvasHeight, filled);
+        RenderInstance(canvas, instance, camera, canvasWidth, canvasHeight, filled);
     }
 }
 
@@ -556,7 +527,7 @@ int main() {
     const int Cw = 800;
     const int Ch = 600;
     
-    Canvas canvas(Cw, Ch, Color(50, 50, 50));
+    Canvas canvas(Cw, Ch, Color(255, 255, 255));
     
     // Define cube model
     Model cube;
@@ -580,34 +551,24 @@ int main() {
     // Original cube (centered)
     Instance originalCube;
     originalCube.model = cube;
-    originalCube.transform = MakeTranslationMatrix(0, 0, 8.0f);
+    originalCube.transform = Transform({0, 0, 10.0f});
     originalCube.bounding_sphere = BoundingSphere({0, 0, 8}, sqrt(3));
     scene.instances.push_back(originalCube);
     
-    // Translated cube (left and down)
+    // Translated cube (left)
     Instance translatedCube;
     translatedCube.model = cube;
-    translatedCube.transform = MakeTranslationMatrix(-3.0f, -1.0f, 7.0f);
+    translatedCube.transform = Transform({-3.0f, 0.0f, 10.0f});
     translatedCube.bounding_sphere = BoundingSphere({-3, -1, 7}, sqrt(3));
     scene.instances.push_back(translatedCube);
     
-    // Scaled cube (smaller, right and up)
+    // Scaled cube (right)
     Instance scaledCube;
     scaledCube.model = cube;
-    auto scale = MakeScalingMatrix(0.5f, 0.5f, 0.5f);
-    auto translateAndScale = MultiplyMatrices(MakeTranslationMatrix(3.0f, 1.0f, 9.0f), scale);
-    scaledCube.transform = translateAndScale;
+    scaledCube.transform = Transform({3.0f, 0.0f, 10.0f}, {0, 0, 0}, {0.5f, 0.5f, 0.5f});
     scaledCube.bounding_sphere = BoundingSphere({3, 1, 9}, sqrt(3) * 0.5f);
     scene.instances.push_back(scaledCube);
     
-    // Rotated cube (around Y axis)
-    Instance rotatedCube;
-    rotatedCube.model = cube;
-    auto rotationY = MakeRotationYMatrix(0.5f);
-    auto translateRotate = MultiplyMatrices(MakeTranslationMatrix(0, 2.5f, 7.0f), rotationY);
-    rotatedCube.transform = translateRotate;
-    rotatedCube.bounding_sphere = BoundingSphere({0, 2.5, 7}, sqrt(3));
-    scene.instances.push_back(rotatedCube);
 
     // Set up camera
     Camera camera;
@@ -616,7 +577,7 @@ int main() {
     // Render scene with filled triangles
     RenderScene(canvas, scene, camera, Cw, Ch, true);
     
-    canvas.writePPM("output.ppm");
-    cout << "Rendered image saved to output.ppm" << endl;
+    canvas.writePPM("rasterizer_output.ppm");
+    
     return 0;
 }
