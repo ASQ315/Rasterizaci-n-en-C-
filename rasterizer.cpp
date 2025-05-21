@@ -1,7 +1,6 @@
 /*Examen 2: Rasterizacion en C++
   Angel Santiago Quiñones
   enlace github: https://github.com/ASQ315/Rasterizacion/tree/main*/
-
 #include <vector>
 #include <cmath>
 #include <algorithm>
@@ -299,8 +298,6 @@ struct Scene {
     vector<Instance> instances;
 };
 
-
-
 float SignedDistance(const Plane& plane, const vector<float>& vertex) {
     return plane.a * vertex[0] + 
            plane.b * vertex[1] + 
@@ -401,7 +398,6 @@ Instance ClipTrianglesAgainstPlane(const Instance& instance, const Plane& plane)
             clipped_instance.model.triangles.push_back(tri);
         }
     }
-    
     return clipped_instance;
 }
 
@@ -468,13 +464,11 @@ void RenderTriangle(Canvas& canvas,
         default: color = Color(255, 255, 255); break; //rgb(255,255,255)
     }
 
-
     DrawFilledTriangle(canvas, 
                          projected[triangle.vertices[0]], v0[2],
                          projected[triangle.vertices[1]], v1[2],
                          projected[triangle.vertices[2]], v2[2],
                          color);
-    
 }
 
 void RenderInstance(Canvas& canvas, 
@@ -485,7 +479,6 @@ void RenderInstance(Canvas& canvas,
     vector<Point> projected;
     vector<vector<float>> transformedVertices;
     const Model& model = instance.model;
-    
     
     Transform cameraTransform;
     cameraTransform.translation = {
@@ -574,8 +567,6 @@ int main() {
     translatedCube.bounding_sphere = BoundingSphere({-3, -1, 7}, sqrt(3));
     scene.instances.push_back(translatedCube);
     
-    
-
     // Set up camera
     Camera camera;
     camera.position = {0, 0, 0};
